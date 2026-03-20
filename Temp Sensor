@@ -1,8 +1,21 @@
-int tempPin = A0;
+#include <Wire.h>
+#include <Adafruit_LiquidCrystal.h>
+#include <Servo.h>
 
-int ledLow = 8;
-int ledMid = 9;
-int ledHigh = 10;
+const int tempPin = A0;
+
+const int ledLow = 8;
+const int ledMid = 9;
+const int ledHigh = 10;
+
+const int buzzer = 11;
+const int buttonPin = 7;
+const int servoPin = 6;
+
+Adafruit_LiquidCrystal lcd(0);
+Servo valveServo;
+
+bool shutdownActive = false;
 
 void setup() {
   Serial.begin(9600);
@@ -10,34 +23,110 @@ void setup() {
   pinMode(ledLow, OUTPUT);
   pinMode(ledMid, OUTPUT);
   pinMode(ledHigh, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+
+  // External pull-down resistor setup
+  pinMode(buttonPin, INPUT);
+
+  lcd.begin(16, 2);
+  lcd.setBacklight(1);
+  lcd.clear();
+
+  valveServo.attach(servoPin);
+  valveServo.write(0);
+
+  lcd.setCursor(0, 0);
+  lcd.print("Reactor Temp:");
 }
 
 void loop() {
+  int buttonState = digitalRead(buttonPin);
+
+  Serial.print("Button: ");
+  Serial.println(buttonState);
+
+  // With pull-down resistor wiring:
+  // LOW = not pressed
+  // HIGH = pressed
+  if (buttonState == HIGH) {
+    shutdownActive = true;
+  }
+
+  if (shutdownActive) {
+    digitalWrite(ledLow, LOW);
+    digitalWrite(ledMid, LOW);
+    digitalWrite(ledHigh, LOW);
+
+    noTone(buzzer);
+    valveServo.write(90);
+
+    lcd.setCursor(0, 0);
+    lcd.print("!!! SHUTDOWN !!!");
+    lcd.setCursor(0, 1);
+    lcd.print("Coolant MAX ON ");
+
+    delay(100);
+    return;
+  }
+
   int reading = analogRead(tempPin);
 
   float voltage = reading * (5.0 / 1023.0);
-  float temperatureC = (voltage - 0.5) * 100;
+  float temperatureC = (voltage - 0.5) * 100.0;   // TMP36
+  // If using LM35 instead:
+  // float temperatureC = voltage * 100.0;
 
+  Serial.print("Temp: ");
   Serial.println(temperatureC);
 
-  // Reset LEDs
   digitalWrite(ledLow, LOW);
   digitalWrite(ledMid, LOW);
   digitalWrite(ledHigh, LOW);
+  noTone(buzzer);
 
-  // Temperature thresholds
-  if (temperatureC < 30) {
-    digitalWrite(ledLow, HIGH); // Low cooling
-  }
-  else if (temperatureC < 40) {
+  lcd.setCursor(0, 0);
+  lcd.print("Reactor Temp:");
+
+  if (temperatureC < 30.0) {
     digitalWrite(ledLow, HIGH);
-    digitalWrite(ledMid, HIGH); // Medium cooling
+    valveServo.write(0);
+
+    lcd.setCursor(0, 1);
+    lcd.print("T:");
+    lcd.print(temperatureC, 1);
+    lcd.print("C LOW      ");
+  }
+  else if (temperatureC < 40.0) {
+    digitalWrite(ledLow, HIGH);
+    digitalWrite(ledMid, HIGH);
+    valveServo.write(45);
+
+    lcd.setCursor(0, 1);
+    lcd.print("T:");
+    lcd.print(temperatureC, 1);
+    lcd.print("C MED      ");
+
+    tone(buzzer, 100);
+    delay(150);
+    noTone(buzzer);
+    delay(350);
   }
   else {
     digitalWrite(ledLow, HIGH);
     digitalWrite(ledMid, HIGH);
-    digitalWrite(ledHigh, HIGH); // Max cooling
+    digitalWrite(ledHigh, HIGH);
+    valveServo.write(90);
+
+    lcd.setCursor(0, 1);
+    lcd.print("T:");
+    lcd.print(temperatureC, 1);
+    lcd.print("C CRITICAL ");
+
+    tone(buzzer, 500);
+    delay(120);
+    noTone(buzzer);
+    delay(120);
   }
 
-  delay(500);
+  delay(200);
 }
